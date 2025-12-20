@@ -1,0 +1,47 @@
+import { Module, NestModule, MiddlewareConsumer, Logger } from '@nestjs/common';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { MongooseModule } from '@nestjs/mongoose';
+import { UsersModule } from './users/users.module';
+import { TasksModule } from './tasks/tasks.module';
+import { ProjectsModule } from './projects/projects.module';
+import { DashboardModule } from './dashboard/dashboard.module';
+import { Request, Response, NextFunction } from 'express';
+
+@Module({
+  imports: [
+    ConfigModule.forRoot({ isGlobal: true }),
+    MongooseModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({
+        uri: config.get<string>('MONGO_URI'),
+      }),
+    }),
+    UsersModule,
+    TasksModule,
+    ProjectsModule,
+    DashboardModule,
+  ],
+})
+export class AppModule implements NestModule {
+  private readonly logger = new Logger('HTTP');
+
+  configure(consumer: MiddlewareConsumer) {
+    // Middleware này sẽ chặn mọi request và log thông tin ra terminal
+    consumer
+      .apply((req: Request, res: Response, next: NextFunction) => {
+        const { method, originalUrl } = req;
+        const start = Date.now();
+
+        res.on('finish', () => {
+          const { statusCode } = res;
+          const duration = Date.now() - start;
+          this.logger.log(
+            `${method} ${originalUrl} ${statusCode} - ${duration}ms`,
+          );
+        });
+
+        next();
+      })
+      .forRoutes('*'); // Áp dụng cho tất cả routes
+  }
+}
