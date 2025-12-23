@@ -33,7 +33,7 @@ export class TasksController {
 
   @Get('unscheduled')
   async getUnscheduledTasks() {
-    // Lấy các task chưa có giờ (scheduledTime) và chưa hoàn thành
+    // Get tasks without scheduledDate and not completed
     return this.tasksService.findAllUnscheduled();
   }
 

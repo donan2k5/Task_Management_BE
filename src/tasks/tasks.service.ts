@@ -2,16 +2,25 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  Inject,
+  forwardRef,
+  Logger,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Task, TaskDocument } from './schemas/task.schema';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
+import { SyncService } from '../sync/sync.service';
 
 @Injectable()
 export class TasksService {
-  constructor(@InjectModel(Task.name) private taskModel: Model<TaskDocument>) {}
+  private readonly logger = new Logger(TasksService.name);
+
+  constructor(
+    @InjectModel(Task.name) private taskModel: Model<TaskDocument>,
+    @Inject(forwardRef(() => SyncService)) private syncService: SyncService,
+  ) {}
 
   /**
    * API TRỌNG TÂM: Lấy task cho Calendar theo khoảng thời gian tùy chỉnh
@@ -31,7 +40,7 @@ export class TasksService {
           $lte: endDate,
         },
       })
-      .sort({ scheduledDate: 1, scheduledTime: 1 }) // Sắp xếp thời gian thực tế
+      .sort({ scheduledDate: 1 })
       .lean();
   }
 
@@ -63,7 +72,21 @@ export class TasksService {
 
   async create(createTaskDto: CreateTaskDto): Promise<Task> {
     const createdTask = new this.taskModel(createTaskDto);
-    return createdTask.save();
+    const savedTask = await createdTask.save();
+
+    this.triggerAutoSync(savedTask._id.toString());
+
+    return savedTask;
+  }
+
+  private triggerAutoSync(taskId: string): void {
+    setImmediate(async () => {
+      try {
+        await this.syncService.autoSyncTaskToGoogle(taskId);
+      } catch (error) {
+        this.logger.error(`Auto-sync failed for task ${taskId}`, error);
+      }
+    });
   }
 
   async findAll(status?: string): Promise<Task[]> {
@@ -85,13 +108,26 @@ export class TasksService {
       .findByIdAndUpdate(id, updateTaskDto, { new: true })
       .exec();
     if (!updatedTask) throw new NotFoundException(`Task ${id} not found`);
+
+    this.triggerAutoSync(id);
+
     return updatedTask;
   }
 
   async remove(id: string): Promise<Task> {
+    const task = await this.taskModel.findById(id).exec();
+    if (!task) throw new NotFoundException(`Task ${id} not found`);
+
+    setImmediate(async () => {
+      try {
+        await this.syncService.autoDeleteTaskFromGoogle(task);
+      } catch (error) {
+        this.logger.error(`Auto-delete event failed for task ${id}`, error);
+      }
+    });
+
     const deletedTask = await this.taskModel.findByIdAndDelete(id).exec();
-    if (!deletedTask) throw new NotFoundException(`Task ${id} not found`);
-    return deletedTask;
+    return deletedTask!;
   }
 
   async findByProject(projectName: string): Promise<Task[]> {
@@ -101,7 +137,7 @@ export class TasksService {
   async findAllUnscheduled() {
     return this.taskModel
       .find({
-        scheduledTime: { $exists: false },
+        scheduledDate: { $exists: false },
         status: { $ne: 'done' },
       })
       .sort({ isUrgent: -1, isImportant: -1 })

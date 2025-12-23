@@ -5,6 +5,9 @@ import { UsersModule } from './users/users.module';
 import { TasksModule } from './tasks/tasks.module';
 import { ProjectsModule } from './projects/projects.module';
 import { DashboardModule } from './dashboard/dashboard.module';
+import { AuthModule } from './auth/auth.module';
+import { GoogleCalendarModule } from './google-calendar/google-calendar.module';
+import { SyncModule } from './sync/sync.module';
 import { Request, Response, NextFunction } from 'express';
 
 @Module({
@@ -20,13 +23,15 @@ import { Request, Response, NextFunction } from 'express';
     TasksModule,
     ProjectsModule,
     DashboardModule,
+    AuthModule,
+    GoogleCalendarModule,
+    SyncModule,
   ],
 })
 export class AppModule implements NestModule {
   private readonly logger = new Logger('HTTP');
 
   configure(consumer: MiddlewareConsumer) {
-    // Middleware này sẽ chặn mọi request và log thông tin ra terminal
     consumer
       .apply((req: Request, res: Response, next: NextFunction) => {
         const { method, originalUrl } = req;
@@ -42,6 +47,6 @@ export class AppModule implements NestModule {
 
         next();
       })
-      .forRoutes('*'); // Áp dụng cho tất cả routes
+      .forRoutes('*');
   }
 }
