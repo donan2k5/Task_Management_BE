@@ -12,13 +12,13 @@ export class Task {
   project: string;
 
   @Prop({ type: Date })
-  scheduledDate: Date; // Ngày bắt đầu làm
-
-  @Prop()
-  scheduledTime: string;
+  scheduledDate: Date; // Start date/time for the task (includes time component)
 
   @Prop({ type: Date })
-  deadline: Date;
+  scheduledEndDate: Date; // End date/time for calendar event duration
+
+  @Prop({ type: Date })
+  deadline: Date; // Actual due date set by user - independent of calendar event duration
 
   @Prop({ default: false })
   isUrgent: boolean;
@@ -34,6 +34,21 @@ export class Task {
 
   @Prop()
   description: string;
+
+  // Google Calendar sync fields
+  @Prop()
+  googleEventId?: string; // ID of the event in Google Calendar
+
+  /** @deprecated No longer used - all tasks sync to User's dedicated calendar */
+  @Prop()
+  googleCalendarId?: string;
+
+  @Prop({ type: Date })
+  lastSyncedAt?: Date; // Last time this task was synced with Google
 }
 
 export const TaskSchema = SchemaFactory.createForClass(Task);
+
+TaskSchema.index({ googleEventId: 1 });
+TaskSchema.index({ project: 1, googleEventId: 1 });
+TaskSchema.index({ scheduledDate: 1 });

@@ -16,19 +16,18 @@ export class CreateTaskDto {
   @IsOptional()
   project?: string;
 
-  // Frontend gửi string ISO, Backend validate xong lưu vào DB là Date
-  @IsString()
+  // Frontend sends ISO string, Backend validates and stores as Date
+  @IsDateString()
   @IsOptional()
-  scheduledDate?: string;
+  scheduledDate?: string; // Start date/time (e.g., "2023-12-25T14:30:00Z")
 
-  @IsString()
+  @IsDateString()
   @IsOptional()
-  scheduledTime?: string;
+  scheduledEndDate?: string; // End date/time for calendar event duration (e.g., "2023-12-25T15:30:00Z")
 
-  // 👇 THÊM DEADLINE VÀO DTO
-  @IsDateString() // Bắt buộc phải là string dạng ngày tháng (VD: "2023-12-25T00:00:00Z")
+  @IsDateString()
   @IsOptional()
-  deadline?: string;
+  deadline?: string; // User-set due date - independent of calendar event duration
 
   @IsBoolean()
   @IsOptional()
