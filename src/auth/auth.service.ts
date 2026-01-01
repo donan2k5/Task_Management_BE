@@ -11,6 +11,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { OAuth2Client } from 'google-auth-library';
 import * as bcrypt from 'bcrypt';
+import * as crypto from 'crypto';
 import { User, UserDocument } from '../users/user.schema';
 import { GoogleProfile } from './strategies/google.strategy';
 import {
@@ -110,10 +111,7 @@ export class AuthService {
       }
 
       // Verify refresh token exists in user's stored tokens
-      const isValidToken = await this.validateStoredRefreshToken(
-        user,
-        refreshToken,
-      );
+      const isValidToken = this.validateStoredRefreshToken(user, refreshToken);
 
       if (!isValidToken) {
         throw new UnauthorizedException('Refresh token has been revoked');
@@ -421,11 +419,16 @@ export class AuthService {
     return { accessToken, refreshToken };
   }
 
+  // Use SHA-256 for refresh tokens (fast, secure for random tokens)
+  private hashRefreshToken(token: string): string {
+    return crypto.createHash('sha256').update(token).digest('hex');
+  }
+
   private async storeRefreshToken(
     user: UserDocument,
     refreshToken: string,
   ): Promise<void> {
-    const hashedToken = await bcrypt.hash(refreshToken, 10);
+    const hashedToken = this.hashRefreshToken(refreshToken);
     user.refreshTokens.push(hashedToken);
 
     // Limit stored tokens (max 5 devices)
@@ -436,33 +439,20 @@ export class AuthService {
     await user.save();
   }
 
-  private async validateStoredRefreshToken(
+  private validateStoredRefreshToken(
     user: UserDocument,
     refreshToken: string,
-  ): Promise<boolean> {
-    for (const hashedToken of user.refreshTokens) {
-      const isValid = await bcrypt.compare(refreshToken, hashedToken);
-      if (isValid) {
-        return true;
-      }
-    }
-    return false;
+  ): boolean {
+    const hashedToken = this.hashRefreshToken(refreshToken);
+    return user.refreshTokens.includes(hashedToken);
   }
 
   private async removeRefreshToken(
     user: UserDocument,
     refreshToken: string,
   ): Promise<void> {
-    const newTokens: string[] = [];
-
-    for (const hashedToken of user.refreshTokens) {
-      const isMatch = await bcrypt.compare(refreshToken, hashedToken);
-      if (!isMatch) {
-        newTokens.push(hashedToken);
-      }
-    }
-
-    user.refreshTokens = newTokens;
+    const hashedToken = this.hashRefreshToken(refreshToken);
+    user.refreshTokens = user.refreshTokens.filter((t) => t !== hashedToken);
     await user.save();
   }
 
