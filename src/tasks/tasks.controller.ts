@@ -12,6 +12,7 @@ import {
 import { TasksService } from './tasks.service';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
 
 @Controller('tasks')
 export class TasksController {
@@ -19,48 +20,51 @@ export class TasksController {
 
   @Get('calendar')
   async getCalendarEvents(
+    @CurrentUser('_id') userId: string,
     @Query('start') start: string,
     @Query('end') end: string,
   ) {
-    // Senior check: Đảm bảo start/end có giá trị
     if (!start || !end) {
       throw new BadRequestException('Start and end dates are required');
     }
 
-    // Gọi service đã bỏ limit để lấy tất cả task trong dải ngày này
-    return this.tasksService.findTasksInInterval(start, end);
+    return this.tasksService.findTasksInInterval(userId, start, end);
   }
 
   @Get('unscheduled')
-  async getUnscheduledTasks() {
-    // Get tasks without scheduledDate and not completed
-    return this.tasksService.findAllUnscheduled();
+  async getUnscheduledTasks(@CurrentUser('_id') userId: string) {
+    return this.tasksService.findAllUnscheduled(userId);
   }
 
   @Post()
-  create(@Body() createTaskDto: CreateTaskDto) {
-    return this.tasksService.create(createTaskDto);
+  create(
+    @CurrentUser('_id') userId: string,
+    @Body() createTaskDto: CreateTaskDto,
+  ) {
+    return this.tasksService.create(userId, createTaskDto);
   }
 
   @Get()
-  findAll(@Query('status') status?: string) {
-    // Cho phép filter: /tasks?status=done hoặc /tasks?status=active (todo + backlog)
-    return this.tasksService.findAll(status);
+  findAll(@CurrentUser('_id') userId: string, @Query('status') status?: string) {
+    return this.tasksService.findAll(userId, status);
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.tasksService.findOne(id);
+  findOne(@CurrentUser('_id') userId: string, @Param('id') id: string) {
+    return this.tasksService.findOne(userId, id);
   }
 
-  // API quan trọng nhất cho Kéo Thả & Complete
   @Patch(':id')
-  update(@Param('id') id: string, @Body() updateTaskDto: UpdateTaskDto) {
-    return this.tasksService.update(id, updateTaskDto);
+  update(
+    @CurrentUser('_id') userId: string,
+    @Param('id') id: string,
+    @Body() updateTaskDto: UpdateTaskDto,
+  ) {
+    return this.tasksService.update(userId, id, updateTaskDto);
   }
 
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.tasksService.remove(id);
+  remove(@CurrentUser('_id') userId: string, @Param('id') id: string) {
+    return this.tasksService.remove(userId, id);
   }
 }

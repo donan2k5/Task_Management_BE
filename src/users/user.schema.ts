@@ -8,20 +8,40 @@ export class User {
   @Prop({ required: true })
   name: string;
 
-  @Prop({ required: true })
+  @Prop({ required: true, unique: true })
   email: string;
 
+  // Local Auth Fields
+  @Prop()
+  passwordHash?: string; // bcrypt hash (null for Google-only users)
+
+  // JWT Refresh Token Management
+  @Prop({ type: [String], default: [] })
+  refreshTokens: string[]; // Array of hashed refresh tokens for multi-device
+
+  // Auth Methods Tracking
+  @Prop({ type: [String], default: [] })
+  authMethods: string[]; // ['google', 'local']
+
+  // Account Status
+  @Prop({ default: true })
+  isActive: boolean;
+
+  @Prop({ type: Date })
+  lastLoginAt?: Date;
+
+  // Google OAuth Fields
   @Prop()
   googleId?: string;
 
   @Prop()
-  accessToken?: string;
+  googleAccessToken?: string; // Renamed from accessToken for clarity
 
   @Prop()
-  refreshToken?: string;
+  googleRefreshToken?: string; // Renamed from refreshToken for clarity
 
   @Prop({ type: Date })
-  tokenExpiry?: Date;
+  googleTokenExpiry?: Date; // Renamed from tokenExpiry for clarity
 
   @Prop()
   avatar?: string;
@@ -46,6 +66,6 @@ export class User {
 export const UserSchema = SchemaFactory.createForClass(User);
 
 UserSchema.index({ googleId: 1 });
-UserSchema.index({ email: 1 });
+UserSchema.index({ email: 1 }, { unique: true });
 UserSchema.index({ dedicatedCalendarId: 1 });
 UserSchema.index({ webhookChannelId: 1 });

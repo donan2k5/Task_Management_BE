@@ -51,18 +51,22 @@ export class SyncSchedulerService implements OnModuleInit {
   }
 
   private async syncAllConnectedUsers(): Promise<void> {
-    const user = await this.syncService.getConnectedUser();
+    const users = await this.syncService.getAllConnectedUsers();
 
-    if (!user) {
+    if (users.length === 0) {
       this.logger.debug('No connected users found for periodic sync');
       return;
     }
 
-    try {
-      await this.syncService.syncGoogleEventsToTasks(user._id.toString());
-      this.logger.debug(`Synced events for user: ${user.email}`);
-    } catch (error) {
-      this.logger.error(`Failed to sync for user ${user.email}`, error);
+    this.logger.log(`Syncing ${users.length} connected users...`);
+
+    for (const user of users) {
+      try {
+        await this.syncService.syncGoogleEventsToTasks(user._id.toString());
+        this.logger.debug(`Synced events for user: ${user.email}`);
+      } catch (error) {
+        this.logger.error(`Failed to sync for user ${user.email}`, error);
+      }
     }
   }
 }

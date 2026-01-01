@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
   Inject,
   forwardRef,
   Logger,
@@ -25,7 +26,11 @@ export class TasksService {
   /**
    * API TRỌNG TÂM: Lấy task cho Calendar theo khoảng thời gian tùy chỉnh
    */
-  async findTasksInInterval(start: string, end: string): Promise<Task[]> {
+  async findTasksInInterval(
+    userId: string,
+    start: string,
+    end: string,
+  ): Promise<Task[]> {
     const startDate = new Date(start);
     const endDate = new Date(end);
 
@@ -35,6 +40,7 @@ export class TasksService {
 
     return this.taskModel
       .find({
+        userId,
         scheduledDate: {
           $gte: startDate,
           $lte: endDate,
@@ -47,7 +53,7 @@ export class TasksService {
   /**
    * Dashboard: Chỉ lấy task Cần làm ngay (Hôm nay hoặc Urgent & Important)
    */
-  async findDashboardTasks(): Promise<Task[]> {
+  async findDashboardTasks(userId: string): Promise<Task[]> {
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
 
@@ -56,6 +62,7 @@ export class TasksService {
 
     return this.taskModel
       .find({
+        userId,
         status: 'todo',
         $or: [
           { isUrgent: true, isImportant: true },
@@ -70,8 +77,11 @@ export class TasksService {
 
   // --- CÁC HÀM CRUD CƠ BẢN ---
 
-  async create(createTaskDto: CreateTaskDto): Promise<Task> {
-    const createdTask = new this.taskModel(createTaskDto);
+  async create(userId: string, createTaskDto: CreateTaskDto): Promise<Task> {
+    const createdTask = new this.taskModel({
+      ...createTaskDto,
+      userId,
+    });
     const savedTask = await createdTask.save();
 
     this.triggerAutoSync(savedTask._id.toString());
@@ -89,34 +99,56 @@ export class TasksService {
     });
   }
 
-  async findAll(status?: string): Promise<Task[]> {
-    const filter: any = {};
+  async findAll(userId: string, status?: string): Promise<Task[]> {
+    const filter: any = { userId };
     if (status === 'done') filter.status = 'done';
     else if (status === 'active') filter.status = { $ne: 'done' };
 
     return this.taskModel.find(filter).sort({ createdAt: -1 }).exec();
   }
 
-  async findOne(id: string): Promise<TaskDocument> {
+  async findOne(userId: string, id: string): Promise<TaskDocument> {
     const task = await this.taskModel.findById(id).exec();
     if (!task) throw new NotFoundException(`Task ${id} not found`);
+
+    // Verify ownership
+    if (task.userId.toString() !== userId) {
+      throw new ForbiddenException('You do not have access to this task');
+    }
+
     return task;
   }
 
-  async update(id: string, updateTaskDto: UpdateTaskDto): Promise<Task> {
+  async update(
+    userId: string,
+    id: string,
+    updateTaskDto: UpdateTaskDto,
+  ): Promise<Task> {
+    const task = await this.taskModel.findById(id).exec();
+    if (!task) throw new NotFoundException(`Task ${id} not found`);
+
+    // Verify ownership
+    if (task.userId.toString() !== userId) {
+      throw new ForbiddenException('You do not have access to this task');
+    }
+
     const updatedTask = await this.taskModel
       .findByIdAndUpdate(id, updateTaskDto, { new: true })
       .exec();
-    if (!updatedTask) throw new NotFoundException(`Task ${id} not found`);
 
     this.triggerAutoSync(id);
 
-    return updatedTask;
+    return updatedTask!;
   }
 
-  async remove(id: string): Promise<Task> {
+  async remove(userId: string, id: string): Promise<Task> {
     const task = await this.taskModel.findById(id).exec();
     if (!task) throw new NotFoundException(`Task ${id} not found`);
+
+    // Verify ownership
+    if (task.userId.toString() !== userId) {
+      throw new ForbiddenException('You do not have access to this task');
+    }
 
     setImmediate(async () => {
       try {
@@ -130,17 +162,28 @@ export class TasksService {
     return deletedTask!;
   }
 
-  async findByProject(projectName: string): Promise<Task[]> {
-    return this.taskModel.find({ project: projectName }).exec();
+  async findByProject(userId: string, projectName: string): Promise<Task[]> {
+    return this.taskModel.find({ userId, project: projectName }).exec();
   }
 
-  async findAllUnscheduled() {
+  async findAllUnscheduled(userId: string) {
     return this.taskModel
       .find({
+        userId,
         scheduledDate: { $exists: false },
         status: { $ne: 'done' },
       })
       .sort({ isUrgent: -1, isImportant: -1 })
       .lean();
+  }
+
+  // Internal method for sync service (no userId check - trusts caller)
+  async findByIdInternal(id: string): Promise<TaskDocument | null> {
+    return this.taskModel.findById(id).exec();
+  }
+
+  // Internal method for sync service
+  async findByGoogleEventId(googleEventId: string): Promise<TaskDocument | null> {
+    return this.taskModel.findOne({ googleEventId }).exec();
   }
 }

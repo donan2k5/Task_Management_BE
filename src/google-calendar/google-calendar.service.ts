@@ -66,7 +66,7 @@ export class GoogleCalendarService {
   private async getCalendarClient(
     userId: string,
   ): Promise<calendar_v3.Calendar> {
-    const accessToken = await this.authService.getAccessToken(userId);
+    const accessToken = await this.authService.getGoogleAccessToken(userId);
 
     const oauth2Client = new OAuth2Client(
       this.configService.get<string>('GOOGLE_CLIENT_ID'),
