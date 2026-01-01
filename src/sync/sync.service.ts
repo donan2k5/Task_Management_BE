@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { ConfigService } from '@nestjs/config';
-import { Model } from 'mongoose';
+import mongoose, { Model } from 'mongoose';
 import { Project, ProjectDocument } from '../projects/schemas/project.schema';
 import { Task, TaskDocument } from '../tasks/schemas/task.schema';
 import { User, UserDocument } from '../users/user.schema';
@@ -67,57 +67,89 @@ export class SyncService {
    */
   async initializeDedicatedCalendar(userId: string): Promise<UserDocument> {
     await this.validateGoogleAuth(userId);
-    const user = await this.userModel.findById(userId);
+
+    // Use findOneAndUpdate to prevent race condition
+    // Only proceed if dedicatedCalendarId is not yet set
+    let user = await this.userModel.findById(userId);
     if (!user) {
       throw new NotFoundException('User not found');
+    }
+
+    // Early return if already fully initialized
+    if (user.dedicatedCalendarId && user.autoSyncEnabled) {
+      this.logger.log(`Calendar already initialized for user ${userId}, skipping`);
+      return user;
     }
 
     const calendarName = this.getCalendarName();
 
     try {
-      // Check if calendar already exists
       let calendarId = user.dedicatedCalendarId;
 
-      if (!calendarId) {
-        // Check if a calendar with this name already exists
-        const existingCalendar =
-          await this.googleCalendarService.findCalendarByName(
-            userId,
-            calendarName,
-          );
+      // ALWAYS check Google for existing calendar with this name first
+      // This prevents duplicates even if dedicatedCalendarId is not set
+      const existingCalendar =
+        await this.googleCalendarService.findCalendarByName(
+          userId,
+          calendarName,
+        );
 
-        if (existingCalendar?.id) {
-          calendarId = existingCalendar.id;
-          this.logger.log(
-            `Found existing calendar "${calendarName}" for user ${userId}`,
-          );
-        } else {
-          // Create new calendar
-          const newCalendar = await this.googleCalendarService.createCalendar(
-            userId,
-            calendarName,
-            'Tasks and events from your Time Management app',
-          );
-          if (!newCalendar.id) {
-            throw new Error('Failed to create dedicated calendar');
-          }
-          calendarId = newCalendar.id;
-          this.logger.log(
-            `Created new calendar "${calendarName}" for user ${userId}`,
-          );
+      if (existingCalendar?.id) {
+        calendarId = existingCalendar.id;
+        this.logger.log(
+          `Found existing calendar "${calendarName}" for user ${userId}`,
+        );
+      } else if (!calendarId) {
+        // Only create if no existing calendar found AND no ID stored
+        const newCalendar = await this.googleCalendarService.createCalendar(
+          userId,
+          calendarName,
+          'Tasks and events from your Time Management app',
+        );
+        if (!newCalendar.id) {
+          throw new Error('Failed to create dedicated calendar');
         }
+        calendarId = newCalendar.id;
+        this.logger.log(
+          `Created new calendar "${calendarName}" for user ${userId}`,
+        );
       }
 
-      // Update user with calendar info
-      user.dedicatedCalendarId = calendarId;
-      user.autoSyncEnabled = true;
-      await user.save();
+      // Use findOneAndUpdate to atomically update only if not already set
+      // This prevents race condition where two concurrent calls both try to set
+      user = await this.userModel.findOneAndUpdate(
+        {
+          _id: userId,
+          $or: [
+            { dedicatedCalendarId: { $exists: false } },
+            { dedicatedCalendarId: null },
+            { dedicatedCalendarId: calendarId }, // Allow update if same ID
+          ]
+        },
+        {
+          $set: {
+            dedicatedCalendarId: calendarId,
+            autoSyncEnabled: true,
+          }
+        },
+        { new: true }
+      );
+
+      // If update failed (another process already set a different calendar), fetch fresh
+      if (!user) {
+        user = await this.userModel.findById(userId);
+        if (!user) {
+          throw new NotFoundException('User not found');
+        }
+        this.logger.log(`Another process already initialized calendar for user ${userId}`);
+        return user;
+      }
 
       // Enable webhook for the dedicated calendar
       await this.enableUserWebhook(userId);
 
       // Create Inbox project if it doesn't exist
-      await this.getOrCreateInboxProject();
+      await this.getOrCreateInboxProject(userId);
 
       // Sync all existing scheduled tasks to the calendar
       await this.syncAllTasksToGoogle(userId);
@@ -135,20 +167,23 @@ export class SyncService {
 
   /**
    * Get or create the Inbox project for events from Google without a project
+   * Each user has their own Inbox project
    */
-  async getOrCreateInboxProject(): Promise<ProjectDocument> {
+  async getOrCreateInboxProject(userId: string): Promise<ProjectDocument> {
     let inboxProject = await this.projectModel.findOne({
+      userId: new mongoose.Types.ObjectId(userId),
       name: INBOX_PROJECT_NAME,
     });
 
     if (!inboxProject) {
       inboxProject = await this.projectModel.create({
+        userId: new mongoose.Types.ObjectId(userId),
         name: INBOX_PROJECT_NAME,
         description: 'Default project for tasks synced from Google Calendar',
         status: 'active',
         color: '#808080', // Gray color for inbox
       });
-      this.logger.log('Created Inbox project');
+      this.logger.log(`Created Inbox project for user ${userId}`);
     }
 
     return inboxProject;
@@ -159,10 +194,18 @@ export class SyncService {
   // ============================================
 
   /**
-   * Get the connected Google user (user with autoSyncEnabled)
+   * Get user by ID
    */
-  async getConnectedUser(): Promise<UserDocument | null> {
-    return this.userModel.findOne({
+  async getUserById(userId: string): Promise<UserDocument | null> {
+    return this.userModel.findById(userId);
+  }
+
+  /**
+   * Get ALL connected Google users (users with autoSyncEnabled)
+   * Used for scheduled sync jobs
+   */
+  async getAllConnectedUsers(): Promise<UserDocument[]> {
+    return this.userModel.find({
       autoSyncEnabled: true,
       dedicatedCalendarId: { $exists: true, $ne: null },
     });
@@ -257,6 +300,10 @@ export class SyncService {
 
       task.googleEventId = googleEvent.id;
       task.lastSyncedAt = new Date();
+      // Ensure userId is set for existing tasks that may not have it
+      if (!task.userId) {
+        task.userId = new mongoose.Types.ObjectId(userId);
+      }
       await task.save();
 
       this.logger.log(`Task ${taskId} synced to Google Calendar`);
@@ -273,24 +320,24 @@ export class SyncService {
   async autoSyncTaskToGoogle(taskId: string): Promise<void> {
     try {
       const task = await this.taskModel.findById(taskId);
-      if (!task || !task.scheduledDate) {
+      if (!task || !task.scheduledDate || !task.userId) {
         return;
       }
 
-      const user = await this.getConnectedUser();
-      if (!user) {
+      // IMPORTANT: Use the task's owner, not just any connected user
+      const userId = task.userId.toString();
+      const user = await this.userModel.findById(userId);
+      if (!user || !user.autoSyncEnabled || !user.dedicatedCalendarId) {
         return;
       }
 
-      const hasAuth = await this.authService.hasValidGoogleAuth(
-        user._id.toString(),
-      );
+      const hasAuth = await this.authService.hasValidGoogleAuth(userId);
       if (!hasAuth) {
-        this.logger.warn('Auto-sync skipped: No valid Google auth');
+        this.logger.warn(`Auto-sync skipped for task ${taskId}: No valid Google auth`);
         return;
       }
 
-      await this.syncTaskToGoogle(user._id.toString(), taskId);
+      await this.syncTaskToGoogle(userId, taskId);
       this.logger.log(`Auto-synced task ${taskId} to Google Calendar`);
     } catch (error) {
       this.logger.error(`Auto-sync failed for task ${taskId}`, error);
@@ -302,24 +349,24 @@ export class SyncService {
    */
   async autoDeleteTaskFromGoogle(task: TaskDocument): Promise<void> {
     try {
-      if (!task.googleEventId) {
+      if (!task.googleEventId || !task.userId) {
         return;
       }
 
-      const user = await this.getConnectedUser();
-      if (!user?.dedicatedCalendarId) {
+      // IMPORTANT: Use the task's owner, not just any connected user
+      const userId = task.userId.toString();
+      const user = await this.userModel.findById(userId);
+      if (!user?.dedicatedCalendarId || !user.autoSyncEnabled) {
         return;
       }
 
-      const hasAuth = await this.authService.hasValidGoogleAuth(
-        user._id.toString(),
-      );
+      const hasAuth = await this.authService.hasValidGoogleAuth(userId);
       if (!hasAuth) {
         return;
       }
 
       await this.googleCalendarService.deleteEvent(
-        user._id.toString(),
+        userId,
         user.dedicatedCalendarId,
         task.googleEventId,
       );
@@ -337,7 +384,9 @@ export class SyncService {
   async syncAllTasksToGoogle(userId: string): Promise<SyncResult> {
     await this.validateGoogleAuth(userId);
 
+    // IMPORTANT: Only sync tasks belonging to this user
     const tasks = await this.taskModel.find({
+      userId: new mongoose.Types.ObjectId(userId),
       scheduledDate: { $exists: true, $ne: null },
     });
 
@@ -398,7 +447,7 @@ export class SyncService {
 
     for (const event of events) {
       try {
-        await this.syncEventToTask(event);
+        await this.syncEventToTask(event, userId);
         result.synced++;
       } catch (error) {
         result.failed++;
@@ -410,6 +459,7 @@ export class SyncService {
     const deletedCount = await this.handleDeletedGoogleEvents(
       user.dedicatedCalendarId,
       events,
+      userId,
     );
     result.synced += deletedCount;
 
@@ -423,7 +473,10 @@ export class SyncService {
   /**
    * Sync a single Google event to a task
    */
-  private async syncEventToTask(event: GoogleEvent): Promise<TaskDocument> {
+  private async syncEventToTask(
+    event: GoogleEvent,
+    userId: string,
+  ): Promise<TaskDocument> {
     const taskId = event.extendedProperties?.private?.axis_task_id;
     const projectId = event.extendedProperties?.private?.axis_project_id;
 
@@ -452,6 +505,10 @@ export class SyncService {
       // Note: deadline is NOT updated from Google - it's a user-set due date, independent of calendar event duration
       task.googleEventId = event.id ?? task.googleEventId;
       task.lastSyncedAt = new Date();
+      // Ensure userId is set for existing tasks that may not have it
+      if (!task.userId) {
+        task.userId = new mongoose.Types.ObjectId(userId);
+      }
       await task.save();
       return task;
     }
@@ -466,8 +523,8 @@ export class SyncService {
       }
     }
 
-    // Ensure Inbox project exists
-    await this.getOrCreateInboxProject();
+    // Ensure Inbox project exists for this user
+    await this.getOrCreateInboxProject(userId);
 
     const newTask = await this.taskModel.create({
       title: event.summary || 'Untitled Event',
@@ -479,10 +536,10 @@ export class SyncService {
       lastSyncedAt: new Date(),
       status: 'todo',
       completed: false,
+      userId: new mongoose.Types.ObjectId(userId),
     });
 
     this.logger.log(`Created task "${newTask.title}" from Google event`);
-    this.logger.log(`Created task "${newTask}" from Google event`);
     return newTask;
   }
 
@@ -492,10 +549,13 @@ export class SyncService {
   private async handleDeletedGoogleEvents(
     calendarId: string,
     currentEvents: GoogleEvent[],
+    userId: string,
   ): Promise<number> {
     const currentEventIds = new Set(currentEvents.map((e) => e.id));
 
+    // IMPORTANT: Only check tasks belonging to this user
     const tasksWithGoogleIds = await this.taskModel.find({
+      userId: new mongoose.Types.ObjectId(userId),
       googleEventId: { $exists: true, $ne: null },
     });
 
@@ -506,6 +566,10 @@ export class SyncService {
         task.completed = true;
         task.googleEventId = undefined;
         task.lastSyncedAt = new Date();
+        // Ensure userId is set for existing tasks that may not have it
+        if (!task.userId) {
+          task.userId = new mongoose.Types.ObjectId(userId);
+        }
         await task.save();
         deletedCount++;
         this.logger.log(
@@ -728,9 +792,12 @@ export class SyncService {
       user.webhookExpiration = undefined;
       await user.save();
 
-      // Clear googleEventId from all tasks
+      // Clear googleEventId from this user's tasks only
       await this.taskModel.updateMany(
-        { googleEventId: { $exists: true } },
+        {
+          userId: new mongoose.Types.ObjectId(userId),
+          googleEventId: { $exists: true },
+        },
         { $unset: { googleEventId: 1, lastSyncedAt: 1 } },
       );
 

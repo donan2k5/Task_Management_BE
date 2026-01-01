@@ -7,6 +7,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { SyncService } from './sync.service';
+import { Public } from '../auth/decorators/public.decorator';
 
 @Controller('webhook')
 export class WebhookController {
@@ -14,6 +15,7 @@ export class WebhookController {
 
   constructor(private readonly syncService: SyncService) {}
 
+  @Public()
   @Post('google-calendar')
   @HttpCode(HttpStatus.OK)
   async handleGoogleCalendarWebhook(

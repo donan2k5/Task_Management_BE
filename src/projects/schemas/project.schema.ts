@@ -1,10 +1,18 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document } from 'mongoose';
+import mongoose, { Document } from 'mongoose';
 
 export type ProjectDocument = Project & Document;
 
 @Schema({ timestamps: true })
 export class Project {
+  @Prop({
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true,
+    index: true,
+  })
+  userId: mongoose.Types.ObjectId;
+
   @Prop({ required: true, trim: true }) // trim để xóa khoảng trắng thừa
   name: string;
 
@@ -72,5 +80,6 @@ export class Project {
 
 export const ProjectSchema = SchemaFactory.createForClass(Project);
 
+ProjectSchema.index({ userId: 1 });
 ProjectSchema.index({ googleCalendarId: 1 });
 ProjectSchema.index({ syncWithGoogle: 1, googleCalendarId: 1 });

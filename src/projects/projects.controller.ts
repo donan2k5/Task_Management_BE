@@ -10,39 +10,46 @@ import {
 import { ProjectsService } from './projects.service';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
 
 @Controller('projects')
 export class ProjectsController {
-  // <--- Quan trọng nhất là chữ export này
   constructor(private readonly projectsService: ProjectsService) {}
 
   @Post()
-  create(@Body() createProjectDto: CreateProjectDto) {
-    return this.projectsService.create(createProjectDto);
+  create(
+    @CurrentUser('_id') userId: string,
+    @Body() createProjectDto: CreateProjectDto,
+  ) {
+    return this.projectsService.create(userId, createProjectDto);
   }
 
   @Get()
-  findAll() {
-    return this.projectsService.findAll();
+  findAll(@CurrentUser('_id') userId: string) {
+    return this.projectsService.findAll(userId);
   }
 
   @Get('stats')
-  getStats() {
-    return this.projectsService.getStats();
+  getStats(@CurrentUser('_id') userId: string) {
+    return this.projectsService.getStats(userId);
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.projectsService.findOne(id);
+  findOne(@CurrentUser('_id') userId: string, @Param('id') id: string) {
+    return this.projectsService.findOne(userId, id);
   }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() updateProjectDto: UpdateProjectDto) {
-    return this.projectsService.update(id, updateProjectDto);
+  update(
+    @CurrentUser('_id') userId: string,
+    @Param('id') id: string,
+    @Body() updateProjectDto: UpdateProjectDto,
+  ) {
+    return this.projectsService.update(userId, id, updateProjectDto);
   }
 
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.projectsService.remove(id);
+  remove(@CurrentUser('_id') userId: string, @Param('id') id: string) {
+    return this.projectsService.remove(userId, id);
   }
 }

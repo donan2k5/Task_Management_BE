@@ -1,10 +1,14 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Project, ProjectDocument } from './schemas/project.schema';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
-import { TasksService } from '../tasks/tasks.service'; // Import Task Service
+import { TasksService } from '../tasks/tasks.service';
 
 const DASHBOARD_PROJECTS_LIMIT = 3;
 
@@ -12,20 +16,29 @@ const DASHBOARD_PROJECTS_LIMIT = 3;
 export class ProjectsService {
   constructor(
     @InjectModel(Project.name) private projectModel: Model<ProjectDocument>,
-    private tasksService: TasksService, // Inject để lấy tasks
+    private tasksService: TasksService,
   ) {}
 
-  async create(createProjectDto: CreateProjectDto): Promise<Project> {
-    const createdProject = new this.projectModel(createProjectDto);
+  async create(
+    userId: string,
+    createProjectDto: CreateProjectDto,
+  ): Promise<Project> {
+    const createdProject = new this.projectModel({
+      ...createProjectDto,
+      userId,
+    });
     return createdProject.save();
   }
 
-  async findAll(): Promise<any[]> {
-    const projects = await this.projectModel.find().exec();
+  async findAll(userId: string): Promise<any[]> {
+    const projects = await this.projectModel.find({ userId }).exec();
 
     const projectsWithStats = await Promise.all(
       projects.map(async (project) => {
-        const tasks = await this.tasksService.findByProject(project.name);
+        const tasks = await this.tasksService.findByProject(
+          userId,
+          project.name,
+        );
 
         const totalTasks = tasks.length;
         const completedTasks = tasks.filter((t) => t.completed).length;
@@ -45,37 +58,66 @@ export class ProjectsService {
     return projectsWithStats;
   }
 
-  async findOne(id: string): Promise<Project> {
+  async findOne(userId: string, id: string): Promise<Project> {
     const project = await this.projectModel.findById(id).exec();
     if (!project) throw new NotFoundException(`Project ${id} not found`);
+
+    // Verify ownership
+    if (project.userId.toString() !== userId) {
+      throw new ForbiddenException('You do not have access to this project');
+    }
+
     return project;
   }
 
   async update(
+    userId: string,
     id: string,
     updateProjectDto: UpdateProjectDto,
   ): Promise<Project> {
+    const project = await this.projectModel.findById(id).exec();
+    if (!project) throw new NotFoundException(`Project ${id} not found`);
+
+    // Verify ownership
+    if (project.userId.toString() !== userId) {
+      throw new ForbiddenException('You do not have access to this project');
+    }
+
     const updated = await this.projectModel
       .findByIdAndUpdate(id, updateProjectDto, { new: true })
       .exec();
-    if (!updated) throw new NotFoundException(`Project ${id} not found`);
-    return updated;
+
+    return updated!;
   }
 
-  async remove(id: string): Promise<Project> {
+  async remove(userId: string, id: string): Promise<Project> {
+    const project = await this.projectModel.findById(id).exec();
+    if (!project) throw new NotFoundException(`Project ${id} not found`);
+
+    // Verify ownership
+    if (project.userId.toString() !== userId) {
+      throw new ForbiddenException('You do not have access to this project');
+    }
+
     const deleted = await this.projectModel.findByIdAndDelete(id).exec();
-    if (!deleted) throw new NotFoundException(`Project ${id} not found`);
-    return deleted;
+    return deleted!;
   }
 
-  async getStats() {
-    return { totalProjects: await this.projectModel.countDocuments() };
+  async getStats(userId: string) {
+    return {
+      totalProjects: await this.projectModel.countDocuments({ userId }),
+    };
   }
 
-  async findDashboardProjects() {
+  async findDashboardProjects(userId: string) {
     return this.projectModel
-      .find({ status: 'active' })
+      .find({ userId, status: 'active' })
       .limit(DASHBOARD_PROJECTS_LIMIT)
       .lean();
+  }
+
+  // Internal method for sync service
+  async findByIdInternal(id: string): Promise<ProjectDocument | null> {
+    return this.projectModel.findById(id).exec();
   }
 }

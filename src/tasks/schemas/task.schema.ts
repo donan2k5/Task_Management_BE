@@ -1,10 +1,18 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document } from 'mongoose';
+import mongoose, { Document } from 'mongoose';
 
 export type TaskDocument = Task & Document;
 
 @Schema({ timestamps: true })
 export class Task {
+  @Prop({
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true,
+    index: true,
+  })
+  userId: mongoose.Types.ObjectId;
+
   @Prop({ required: true })
   title: string;
 
@@ -49,6 +57,8 @@ export class Task {
 
 export const TaskSchema = SchemaFactory.createForClass(Task);
 
+TaskSchema.index({ userId: 1 });
+TaskSchema.index({ userId: 1, scheduledDate: 1 });
 TaskSchema.index({ googleEventId: 1 });
 TaskSchema.index({ project: 1, googleEventId: 1 });
 TaskSchema.index({ scheduledDate: 1 });

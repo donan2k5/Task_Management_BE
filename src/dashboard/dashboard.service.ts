@@ -9,24 +9,22 @@ export class DashboardService {
     private readonly projectsService: ProjectsService,
   ) {}
 
-  async getSummary() {
+  async getSummary(userId: string) {
     const [todayTasks, allProjects] = await Promise.all([
-      this.tasksService.findDashboardTasks(),
-      this.projectsService.findDashboardProjects(),
+      this.tasksService.findDashboardTasks(userId),
+      this.projectsService.findDashboardProjects(userId),
     ]);
 
     return {
       tasks: todayTasks,
-      // Hiển thị tất cả hoặc giới hạn tùy ý ở đây
       projects: allProjects,
       goals: this.getMockGoals(),
       upcomingEvents: this.getMockEvents(),
       headerStats: this.getMockStats(),
-      user: { name: 'Nguyen', status: 'online' },
+      user: { name: 'User', status: 'online' },
     };
   }
 
-  // Tách các hàm Mock ra để code chính trông gọn hơn
   private getMockGoals() {
     return [
       {
