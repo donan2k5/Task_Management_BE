@@ -59,6 +59,8 @@ export const TaskSchema = SchemaFactory.createForClass(Task);
 
 TaskSchema.index({ userId: 1 });
 TaskSchema.index({ userId: 1, scheduledDate: 1 });
+TaskSchema.index({ userId: 1, project: 1 }); // For findByProject query
+TaskSchema.index({ userId: 1, status: 1 }); // For dashboard queries
 TaskSchema.index({ googleEventId: 1 });
 TaskSchema.index({ project: 1, googleEventId: 1 });
 TaskSchema.index({ scheduledDate: 1 });
