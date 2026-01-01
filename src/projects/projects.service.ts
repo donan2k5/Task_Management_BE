@@ -4,7 +4,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import mongoose, { Model } from 'mongoose';
 import { Project, ProjectDocument } from './schemas/project.schema';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
@@ -31,29 +31,71 @@ export class ProjectsService {
   }
 
   async findAll(userId: string): Promise<any[]> {
-    const projects = await this.projectModel.find({ userId }).exec();
-
-    const projectsWithStats = await Promise.all(
-      projects.map(async (project) => {
-        const tasks = await this.tasksService.findByProject(
-          userId,
-          project.name,
-        );
-
-        const totalTasks = tasks.length;
-        const completedTasks = tasks.filter((t) => t.completed).length;
-
-        const progress =
-          totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
-
-        return {
-          ...project.toObject(),
-          tasksCount: totalTasks,
-          progress: progress,
-          teammates: project['teammates'] || 1,
-        };
-      }),
-    );
+    // Single aggregation query instead of N+1 queries
+    const projectsWithStats = await this.projectModel.aggregate([
+      { $match: { userId: new mongoose.Types.ObjectId(userId) } },
+      {
+        $lookup: {
+          from: 'tasks',
+          let: { projectName: '$name', odId: '$userId' },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ['$project', '$$projectName'] },
+                    { $eq: ['$userId', '$$odId'] },
+                  ],
+                },
+              },
+            },
+            {
+              $group: {
+                _id: null,
+                totalTasks: { $sum: 1 },
+                completedTasks: {
+                  $sum: { $cond: ['$completed', 1, 0] },
+                },
+              },
+            },
+          ],
+          as: 'taskStats',
+        },
+      },
+      {
+        $addFields: {
+          tasksCount: {
+            $ifNull: [{ $arrayElemAt: ['$taskStats.totalTasks', 0] }, 0],
+          },
+          progress: {
+            $cond: {
+              if: {
+                $gt: [{ $arrayElemAt: ['$taskStats.totalTasks', 0] }, 0],
+              },
+              then: {
+                $round: [
+                  {
+                    $multiply: [
+                      {
+                        $divide: [
+                          { $arrayElemAt: ['$taskStats.completedTasks', 0] },
+                          { $arrayElemAt: ['$taskStats.totalTasks', 0] },
+                        ],
+                      },
+                      100,
+                    ],
+                  },
+                  0,
+                ],
+              },
+              else: 0,
+            },
+          },
+          teammates: { $ifNull: ['$teammates', 1] },
+        },
+      },
+      { $project: { taskStats: 0 } },
+    ]);
 
     return projectsWithStats;
   }

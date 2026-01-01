@@ -104,7 +104,7 @@ export class TasksService {
     if (status === 'done') filter.status = 'done';
     else if (status === 'active') filter.status = { $ne: 'done' };
 
-    return this.taskModel.find(filter).sort({ createdAt: -1 }).exec();
+    return this.taskModel.find(filter).sort({ createdAt: -1 }).lean();
   }
 
   async findOne(userId: string, id: string): Promise<TaskDocument> {
@@ -163,7 +163,7 @@ export class TasksService {
   }
 
   async findByProject(userId: string, projectName: string): Promise<Task[]> {
-    return this.taskModel.find({ userId, project: projectName }).exec();
+    return this.taskModel.find({ userId, project: projectName }).lean();
   }
 
   async findAllUnscheduled(userId: string) {
