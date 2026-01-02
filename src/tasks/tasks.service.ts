@@ -3,8 +3,6 @@ import {
   NotFoundException,
   BadRequestException,
   ForbiddenException,
-  Inject,
-  forwardRef,
   Logger,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
@@ -12,16 +10,18 @@ import { Model } from 'mongoose';
 import { Task, TaskDocument } from './schemas/task.schema';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
-import { SyncService } from '../sync/sync.service';
 
+/**
+ * Tasks Service
+ *
+ * Manages tasks stored locally in MongoDB.
+ * Tasks are NOT synced to external calendars - they stay within the app.
+ */
 @Injectable()
 export class TasksService {
   private readonly logger = new Logger(TasksService.name);
 
-  constructor(
-    @InjectModel(Task.name) private taskModel: Model<TaskDocument>,
-    @Inject(forwardRef(() => SyncService)) private syncService: SyncService,
-  ) {}
+  constructor(@InjectModel(Task.name) private taskModel: Model<TaskDocument>) {}
 
   /**
    * API TRỌNG TÂM: Lấy task cho Calendar theo khoảng thời gian tùy chỉnh
@@ -75,6 +75,49 @@ export class TasksService {
       .lean();
   }
 
+  async findOverdueTasks(userId: string): Promise<Task[]> {
+    const now = new Date();
+    return this.taskModel
+      .find({
+        userId,
+        status: { $ne: 'done' },
+        $or: [
+          { deadline: { $lt: now } },
+          { scheduledDate: { $lt: now } },
+        ],
+      })
+      .sort({ deadline: 1, scheduledDate: 1 })
+      .lean();
+  }
+
+  async findCompletedTasksInDateRange(
+    userId: string,
+    start: Date,
+    end: Date,
+  ): Promise<Task[]> {
+    return this.taskModel
+      .find({
+        userId,
+        status: 'done',
+        updatedAt: { $gte: start, $lte: end },
+      })
+      .sort({ updatedAt: -1 })
+      .lean();
+  }
+
+  async findByProject(userId: string, projectId: string): Promise<Task[]> {
+    return this.taskModel
+      .find({
+        userId,
+        $or: [
+          { project: projectId },
+          { project: { $regex: new RegExp(projectId, 'i') } },
+        ],
+      })
+      .sort({ deadline: 1, createdAt: -1 })
+      .lean();
+  }
+
   // --- CÁC HÀM CRUD CƠ BẢN ---
 
   async create(userId: string, createTaskDto: CreateTaskDto): Promise<Task> {
@@ -82,21 +125,7 @@ export class TasksService {
       ...createTaskDto,
       userId,
     });
-    const savedTask = await createdTask.save();
-
-    this.triggerAutoSync(savedTask._id.toString());
-
-    return savedTask;
-  }
-
-  private triggerAutoSync(taskId: string): void {
-    setImmediate(async () => {
-      try {
-        await this.syncService.autoSyncTaskToGoogle(taskId);
-      } catch (error) {
-        this.logger.error(`Auto-sync failed for task ${taskId}`, error);
-      }
-    });
+    return createdTask.save();
   }
 
   async findAll(userId: string, status?: string): Promise<Task[]> {
@@ -136,8 +165,6 @@ export class TasksService {
       .findByIdAndUpdate(id, updateTaskDto, { new: true })
       .exec();
 
-    this.triggerAutoSync(id);
-
     return updatedTask!;
   }
 
@@ -150,20 +177,8 @@ export class TasksService {
       throw new ForbiddenException('You do not have access to this task');
     }
 
-    setImmediate(async () => {
-      try {
-        await this.syncService.autoDeleteTaskFromGoogle(task);
-      } catch (error) {
-        this.logger.error(`Auto-delete event failed for task ${id}`, error);
-      }
-    });
-
     const deletedTask = await this.taskModel.findByIdAndDelete(id).exec();
     return deletedTask!;
-  }
-
-  async findByProject(userId: string, projectName: string): Promise<Task[]> {
-    return this.taskModel.find({ userId, project: projectName }).lean();
   }
 
   async findAllUnscheduled(userId: string) {
@@ -183,7 +198,9 @@ export class TasksService {
   }
 
   // Internal method for sync service
-  async findByGoogleEventId(googleEventId: string): Promise<TaskDocument | null> {
+  async findByGoogleEventId(
+    googleEventId: string,
+  ): Promise<TaskDocument | null> {
     return this.taskModel.findOne({ googleEventId }).exec();
   }
 }
