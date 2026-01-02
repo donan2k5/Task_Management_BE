@@ -12,6 +12,7 @@ import {
   Inject,
   forwardRef,
   Logger,
+  UnauthorizedException,
 } from '@nestjs/common';
 import type { Response, Request, CookieOptions } from 'express';
 import { ConfigService } from '@nestjs/config';
@@ -108,7 +109,7 @@ export class AuthController {
     const refreshToken = req.cookies?.refreshToken || req.body?.refreshToken;
     if (!refreshToken) {
       this.clearAuthCookies(res);
-      throw new Error('No refresh token provided');
+      throw new UnauthorizedException('No refresh token provided');
     }
 
     const authResponse = await this.authService.refreshTokens(refreshToken);
