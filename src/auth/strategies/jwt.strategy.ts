@@ -4,8 +4,17 @@ import { ExtractJwt, Strategy } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
+import { Request } from 'express';
 import { User, UserDocument } from '../../users/user.schema';
 import { TokenPayload } from '../dto/auth-response.dto';
+
+// Extract JWT from cookie first, then fallback to Bearer header
+const cookieExtractor = (req: Request): string | null => {
+  if (req && req.cookies) {
+    return req.cookies['accessToken'] || null;
+  }
+  return null;
+};
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
@@ -14,7 +23,10 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     @InjectModel(User.name) private userModel: Model<UserDocument>,
   ) {
     super({
-      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      jwtFromRequest: ExtractJwt.fromExtractors([
+        cookieExtractor, // Try cookie first
+        ExtractJwt.fromAuthHeaderAsBearerToken(), // Fallback to Bearer header
+      ]),
       ignoreExpiration: false,
       secretOrKey:
         configService.get<string>('JWT_SECRET') ||
