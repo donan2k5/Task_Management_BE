@@ -36,6 +36,11 @@ export class TasksController {
     return this.tasksService.findAllUnscheduled(userId);
   }
 
+  @Get('overdue')
+  async getOverdueTasks(@CurrentUser('_id') userId: string) {
+    return this.tasksService.findOverdueTasks(userId);
+  }
+
   @Post()
   create(
     @CurrentUser('_id') userId: string,
@@ -45,7 +50,10 @@ export class TasksController {
   }
 
   @Get()
-  findAll(@CurrentUser('_id') userId: string, @Query('status') status?: string) {
+  findAll(
+    @CurrentUser('_id') userId: string,
+    @Query('status') status?: string,
+  ) {
     return this.tasksService.findAll(userId, status);
   }
 

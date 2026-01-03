@@ -11,6 +11,9 @@ export class User {
   @Prop({ required: true, unique: true })
   email: string;
 
+  @Prop()
+  annotation?: string;
+
   // Local Auth Fields
   @Prop()
   passwordHash?: string; // bcrypt hash (null for Google-only users)
@@ -66,6 +69,5 @@ export class User {
 export const UserSchema = SchemaFactory.createForClass(User);
 
 UserSchema.index({ googleId: 1 });
-UserSchema.index({ email: 1 }, { unique: true });
 UserSchema.index({ dedicatedCalendarId: 1 });
 UserSchema.index({ webhookChannelId: 1 });

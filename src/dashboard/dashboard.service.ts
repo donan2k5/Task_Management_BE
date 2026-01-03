@@ -23,7 +23,7 @@ export class DashboardService {
       tasks: todayTasks,
       overdueTasks: overdueTasks,
       projects: allProjects,
-      upcomingEvents: this.getMockEvents(),
+      upcomingEvents: [], // Removed mock events as per user request
       headerStats: this.getMockStats(),
       user: { name: user?.name || 'User', status: 'online' },
     };

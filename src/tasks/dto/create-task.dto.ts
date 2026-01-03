@@ -16,14 +16,15 @@ export class CreateTaskDto {
   @IsOptional()
   project?: string;
 
-  // Frontend sends ISO string, Backend validates and stores as Date
+  // Date: The single source of truth for which "day" a task belongs to
   @IsDateString()
   @IsOptional()
-  scheduledDate?: string; // Start date/time (e.g., "2023-12-25T14:30:00Z")
+  date?: string; // ISO string (e.g., "2023-12-25T00:00:00Z")
 
-  @IsDateString()
+  // Time: Optional time for calendar display (e.g., "14:30")
+  @IsString()
   @IsOptional()
-  scheduledEndDate?: string; // End date/time for calendar event duration (e.g., "2023-12-25T15:30:00Z")
+  time?: string;
 
   @IsDateString()
   @IsOptional()
@@ -48,4 +49,8 @@ export class CreateTaskDto {
   @IsString()
   @IsOptional()
   description?: string;
+
+  @IsString()
+  @IsOptional()
+  calendarId?: string; // Optional: Explicitly sync to this calendar
 }

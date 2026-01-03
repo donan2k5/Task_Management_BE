@@ -87,7 +87,9 @@ export class SyncController {
   // ============================================
 
   @Post('from-google')
-  async syncFromGoogle(@CurrentUser('_id') userId: string): Promise<SyncResult> {
+  async syncFromGoogle(
+    @CurrentUser('_id') userId: string,
+  ): Promise<SyncResult> {
     return this.syncService.syncGoogleEventsToTasks(userId);
   }
 
@@ -98,7 +100,7 @@ export class SyncController {
   @Post('webhook/enable')
   async enableWebhook(
     @CurrentUser('_id') userId: string,
-  ): Promise<UserDocument> {
+  ): Promise<void> {
     return this.syncService.enableUserWebhook(userId);
   }
 
@@ -106,7 +108,7 @@ export class SyncController {
   @HttpCode(HttpStatus.OK)
   async disableWebhook(
     @CurrentUser('_id') userId: string,
-  ): Promise<UserDocument> {
+  ): Promise<void> {
     return this.syncService.disableUserWebhook(userId);
   }
 

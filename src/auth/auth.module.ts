@@ -1,4 +1,4 @@
-import { Module, forwardRef } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { PassportModule } from '@nestjs/passport';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule, ConfigService } from '@nestjs/config';
@@ -12,7 +12,6 @@ import { User, UserSchema } from '../users/user.schema';
 import { GoogleCalendarAuthGuard } from './guards/google-calendar-auth.guard';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { LocalAuthGuard } from './guards/local-auth.guard';
-import { SyncModule } from '../sync/sync.module';
 
 @Module({
   imports: [
@@ -20,15 +19,17 @@ import { SyncModule } from '../sync/sync.module';
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => ({
-        secret: configService.get<string>('JWT_SECRET') || 'default-secret-change-in-production',
+        secret:
+          configService.get<string>('JWT_SECRET') ||
+          'default-secret-change-in-production',
         signOptions: {
-          expiresIn: (configService.get<string>('JWT_ACCESS_EXPIRATION') || '15m') as any,
+          expiresIn: (configService.get<string>('JWT_ACCESS_EXPIRATION') ||
+            '15m') as any,
         },
       }),
       inject: [ConfigService],
     }),
     MongooseModule.forFeature([{ name: User.name, schema: UserSchema }]),
-    forwardRef(() => SyncModule),
   ],
   controllers: [AuthController],
   providers: [

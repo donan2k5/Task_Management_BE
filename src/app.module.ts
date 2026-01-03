@@ -9,9 +9,12 @@ import { DashboardModule } from './dashboard/dashboard.module';
 import { AuthModule } from './auth/auth.module';
 import { GoogleCalendarModule } from './google-calendar/google-calendar.module';
 import { SyncModule } from './sync/sync.module';
+import { ProvidersModule } from './providers/providers.module';
+import { HabitsModule } from './habits/habits.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { AppController } from './app.controller';
 import { Request, Response, NextFunction } from 'express';
+import { PomodoroModule } from './pomodoro/pomodoro.module';
 
 @Module({
   imports: [
@@ -29,6 +32,9 @@ import { Request, Response, NextFunction } from 'express';
     AuthModule,
     GoogleCalendarModule,
     SyncModule,
+    ProvidersModule,
+    HabitsModule,
+    PomodoroModule,
   ],
   controllers: [AppController],
   providers: [

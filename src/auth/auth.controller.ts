@@ -9,8 +9,6 @@ import {
   UseGuards,
   HttpCode,
   HttpStatus,
-  Inject,
-  forwardRef,
   Logger,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -23,7 +21,6 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { Public } from './decorators/public.decorator';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { GoogleProfile } from './strategies/google.strategy';
-import { SyncService } from '../sync/sync.service';
 import {
   RegisterDto,
   RefreshTokenDto,
@@ -44,8 +41,6 @@ export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly configService: ConfigService,
-    @Inject(forwardRef(() => SyncService))
-    private readonly syncService: SyncService,
   ) {}
 
   // Cookie configuration
@@ -60,11 +55,23 @@ export class AuthController {
     };
   }
 
-  private setAuthCookies(res: Response, accessToken: string, refreshToken: string): void {
+  private setAuthCookies(
+    res: Response,
+    accessToken: string,
+    refreshToken: string,
+  ): void {
     // Access token: 15 minutes
-    res.cookie('accessToken', accessToken, this.getCookieOptions(15 * 60 * 1000));
+    res.cookie(
+      'accessToken',
+      accessToken,
+      this.getCookieOptions(15 * 60 * 1000),
+    );
     // Refresh token: 7 days
-    res.cookie('refreshToken', refreshToken, this.getCookieOptions(7 * 24 * 60 * 60 * 1000));
+    res.cookie(
+      'refreshToken',
+      refreshToken,
+      this.getCookieOptions(7 * 24 * 60 * 60 * 1000),
+    );
   }
 
   private clearAuthCookies(res: Response): void {
@@ -81,7 +88,11 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<CookieAuthResponse> {
     const authResponse = await this.authService.register(dto);
-    this.setAuthCookies(res, authResponse.accessToken, authResponse.refreshToken);
+    this.setAuthCookies(
+      res,
+      authResponse.accessToken,
+      authResponse.refreshToken,
+    );
     return { user: authResponse.user };
   }
 
@@ -94,7 +105,11 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<CookieAuthResponse> {
     const authResponse = await this.authService.login(req.user as any);
-    this.setAuthCookies(res, authResponse.accessToken, authResponse.refreshToken);
+    this.setAuthCookies(
+      res,
+      authResponse.accessToken,
+      authResponse.refreshToken,
+    );
     return { user: authResponse.user };
   }
 
@@ -113,7 +128,11 @@ export class AuthController {
     }
 
     const authResponse = await this.authService.refreshTokens(refreshToken);
-    this.setAuthCookies(res, authResponse.accessToken, authResponse.refreshToken);
+    this.setAuthCookies(
+      res,
+      authResponse.accessToken,
+      authResponse.refreshToken,
+    );
     return { user: authResponse.user };
   }
 
@@ -182,22 +201,14 @@ export class AuthController {
     );
 
     // Set HTTP-only cookies
-    this.setAuthCookies(res, authResponse.accessToken, authResponse.refreshToken);
+    this.setAuthCookies(
+      res,
+      authResponse.accessToken,
+      authResponse.refreshToken,
+    );
 
-    // Initialize dedicated calendar and sync asynchronously
-    setImmediate(async () => {
-      try {
-        await this.syncService.initializeDedicatedCalendar(authResponse.user.id);
-        this.logger.log(
-          `Dedicated calendar initialized for user ${authResponse.user.id}`,
-        );
-      } catch (error) {
-        this.logger.error(
-          `Failed to initialize dedicated calendar for user ${authResponse.user.id}`,
-          error,
-        );
-      }
-    });
+    // Note: Calendar initialization is now handled on-demand via provider API
+    // Tasks no longer auto-sync to Google Calendar
 
     // Redirect WITHOUT tokens in URL (cookies already set)
     const params = new URLSearchParams({
@@ -220,7 +231,6 @@ export class AuthController {
   @Delete('google/disconnect')
   @HttpCode(HttpStatus.NO_CONTENT)
   async disconnectGoogle(@CurrentUser('_id') userId: string): Promise<void> {
-    await this.syncService.disconnectSync(userId);
     await this.authService.disconnectGoogle(userId);
   }
 
@@ -236,5 +246,4 @@ export class AuthController {
       expiresAt: updatedUser.googleTokenExpiry ?? null,
     };
   }
-
 }

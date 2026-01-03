@@ -39,6 +39,11 @@ export class ProjectsController {
     return this.projectsService.findOne(userId, id);
   }
 
+  @Get(':id/tasks')
+  getTasks(@CurrentUser('_id') userId: string, @Param('id') id: string) {
+    return this.projectsService.getTasks(userId, id);
+  }
+
   @Patch(':id')
   update(
     @CurrentUser('_id') userId: string,

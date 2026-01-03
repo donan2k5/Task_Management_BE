@@ -6,9 +6,11 @@ import {
   Param,
   Put,
   Delete,
+  Patch,
 } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
 
 @Controller('users')
 export class UsersController {
@@ -27,6 +29,14 @@ export class UsersController {
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.usersService.findOne(id);
+  }
+
+  @Patch('profile')
+  updateProfile(
+    @CurrentUser('_id') userId: string,
+    @Body() dto: Partial<CreateUserDto>,
+  ) {
+    return this.usersService.update(userId, dto as any);
   }
 
   @Put(':id')

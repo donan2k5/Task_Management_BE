@@ -9,7 +9,6 @@ export class Task {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
     required: true,
-    index: true,
   })
   userId: mongoose.Types.ObjectId;
 
@@ -20,13 +19,13 @@ export class Task {
   project: string;
 
   @Prop({ type: Date })
-  scheduledDate: Date; // Start date/time for the task (includes time component)
+  date: Date; // The single source of truth for "Day"
+
+  @Prop()
+  time?: string; // Optional time (e.g. "14:30")
 
   @Prop({ type: Date })
-  scheduledEndDate: Date; // End date/time for calendar event duration
-
-  @Prop({ type: Date })
-  deadline: Date; // Actual due date set by user - independent of calendar event duration
+  deadline: Date; // Actual due date set by user
 
   @Prop({ default: false })
   isUrgent: boolean;
@@ -37,30 +36,25 @@ export class Task {
   @Prop({ default: false })
   completed: boolean;
 
-  @Prop({ default: 'backlog' })
+  @Prop({ default: 'todo' })
   status: string;
 
   @Prop()
   description: string;
 
-  // Google Calendar sync fields
+  // Google Calendar sync fields (used by sync.service for existing functionality)
   @Prop()
-  googleEventId?: string; // ID of the event in Google Calendar
-
-  /** @deprecated No longer used - all tasks sync to User's dedicated calendar */
-  @Prop()
-  googleCalendarId?: string;
+  googleEventId?: string;
 
   @Prop({ type: Date })
-  lastSyncedAt?: Date; // Last time this task was synced with Google
+  lastSyncedAt?: Date;
+
+  createdAt?: Date;
+  updatedAt?: Date;
 }
 
 export const TaskSchema = SchemaFactory.createForClass(Task);
 
 TaskSchema.index({ userId: 1 });
-TaskSchema.index({ userId: 1, scheduledDate: 1 });
-TaskSchema.index({ userId: 1, project: 1 }); // For findByProject query
-TaskSchema.index({ userId: 1, status: 1 }); // For dashboard queries
-TaskSchema.index({ googleEventId: 1 });
-TaskSchema.index({ project: 1, googleEventId: 1 });
-TaskSchema.index({ scheduledDate: 1 });
+TaskSchema.index({ userId: 1, date: 1 }); // For range queries
+TaskSchema.index({ date: 1 });

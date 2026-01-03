@@ -112,6 +112,12 @@ export class ProjectsService {
     return project;
   }
 
+  async getTasks(userId: string, projectId: string) {
+    // Verify access first
+    await this.findOne(userId, projectId);
+    return this.tasksService.findByProject(userId, projectId);
+  }
+
   async update(
     userId: string,
     id: string,

@@ -214,6 +214,16 @@ export class GoogleCalendarService {
     try {
       const calendar = await this.getCalendarClient(userId);
 
+      // Validate dates before using them
+      if (
+        !eventData.startDateTime ||
+        !eventData.endDateTime ||
+        isNaN(eventData.startDateTime.getTime()) ||
+        isNaN(eventData.endDateTime.getTime())
+      ) {
+        throw new Error('Invalid startDateTime or endDateTime');
+      }
+
       const requestBody: any = {
         summary: eventData.title,
         description: eventData.description,
@@ -273,6 +283,16 @@ export class GoogleCalendarService {
   ): Promise<GoogleEvent> {
     try {
       const calendar = await this.getCalendarClient(userId);
+
+      // Validate dates before using them
+      if (
+        !eventData.startDateTime ||
+        !eventData.endDateTime ||
+        isNaN(eventData.startDateTime.getTime()) ||
+        isNaN(eventData.endDateTime.getTime())
+      ) {
+        throw new Error('Invalid startDateTime or endDateTime');
+      }
 
       const requestBody: any = {
         summary: eventData.title,

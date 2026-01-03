@@ -17,7 +17,8 @@ export class SyncSchedulerService implements OnModuleInit {
   private async setupOnStartup(): Promise<void> {
     try {
       this.logger.log('Enabling webhooks for connected users on startup...');
-      const result = await this.syncService.enableWebhooksForAllConnectedUsers();
+      const result =
+        await this.syncService.enableWebhooksForAllConnectedUsers();
       this.logger.log(
         `Startup webhook setup: enabled=${result.enabled}, failed=${result.failed}`,
       );

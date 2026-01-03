@@ -4,24 +4,31 @@ import {
   BadRequestException,
   ForbiddenException,
   Logger,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Task, TaskDocument } from './schemas/task.schema';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
+import { SyncService } from '../sync/sync.service';
 
 /**
  * Tasks Service
  *
  * Manages tasks stored locally in MongoDB.
- * Tasks are NOT synced to external calendars - they stay within the app.
+ * Tasks are auto-synced to Google Calendar when user has sync enabled.
  */
 @Injectable()
 export class TasksService {
   private readonly logger = new Logger(TasksService.name);
 
-  constructor(@InjectModel(Task.name) private taskModel: Model<TaskDocument>) {}
+  constructor(
+    @InjectModel(Task.name) private taskModel: Model<TaskDocument>,
+    @Inject(forwardRef(() => SyncService))
+    private readonly syncService: SyncService,
+  ) {}
 
   /**
    * API TRỌNG TÂM: Lấy task cho Calendar theo khoảng thời gian tùy chỉnh
@@ -41,12 +48,12 @@ export class TasksService {
     return this.taskModel
       .find({
         userId,
-        scheduledDate: {
+        date: {
           $gte: startDate,
           $lte: endDate,
         },
       })
-      .sort({ scheduledDate: 1 })
+      .sort({ date: 1 })
       .lean();
   }
 
@@ -63,30 +70,23 @@ export class TasksService {
     return this.taskModel
       .find({
         userId,
-        status: 'todo',
-        $or: [
-          { isUrgent: true, isImportant: true },
-          {
-            scheduledDate: { $gte: startOfToday, $lte: endOfToday },
-          },
-        ],
+        status: { $ne: 'done' },
+        date: { $gte: startOfToday, $lte: endOfToday },
       })
-      .sort({ isUrgent: -1, isImportant: -1, createdAt: -1 })
+      .sort({ isImportant: -1, createdAt: -1 })
       .lean();
   }
 
   async findOverdueTasks(userId: string): Promise<Task[]> {
     const now = new Date();
+    now.setHours(0, 0, 0, 0); // Start of today
     return this.taskModel
       .find({
         userId,
         status: { $ne: 'done' },
-        $or: [
-          { deadline: { $lt: now } },
-          { scheduledDate: { $lt: now } },
-        ],
+        date: { $lt: now },
       })
-      .sort({ deadline: 1, scheduledDate: 1 })
+      .sort({ date: 1 })
       .lean();
   }
 
@@ -125,7 +125,20 @@ export class TasksService {
       ...createTaskDto,
       userId,
     });
-    return createdTask.save();
+    const savedTask = await createdTask.save();
+
+
+
+    // Explicit Sync: Only sync if calendarId is provided
+    if (createTaskDto.calendarId) {
+      this.syncService
+        .syncTaskToGoogle(userId, savedTask._id.toString(), createTaskDto.calendarId)
+        .catch((err) =>
+          this.logger.warn(`Explicit sync failed for new task: ${err.message}`),
+        );
+    }
+
+    return savedTask;
   }
 
   async findAll(userId: string, status?: string): Promise<Task[]> {
@@ -165,6 +178,11 @@ export class TasksService {
       .findByIdAndUpdate(id, updateTaskDto, { new: true })
       .exec();
 
+    // Check if task is mapped and sync if so
+    this.syncService.syncTaskToGoogle(userId, id).catch((err) =>
+      this.logger.warn(`Sync failed for updated task: ${err.message}`),
+    );
+
     return updatedTask!;
   }
 
@@ -177,6 +195,11 @@ export class TasksService {
       throw new ForbiddenException('You do not have access to this task');
     }
 
+    // Auto-delete from Google Calendar (non-blocking)
+    this.syncService.autoDeleteTaskFromGoogle(task).catch((err) =>
+      this.logger.warn(`Auto-delete from Google failed: ${err.message}`),
+    );
+
     const deletedTask = await this.taskModel.findByIdAndDelete(id).exec();
     return deletedTask!;
   }
@@ -185,7 +208,7 @@ export class TasksService {
     return this.taskModel
       .find({
         userId,
-        scheduledDate: { $exists: false },
+        date: { $exists: false },
         status: { $ne: 'done' },
       })
       .sort({ isUrgent: -1, isImportant: -1 })
